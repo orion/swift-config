@@ -136,7 +136,7 @@ class TestWSGI(unittest.TestCase):
             _fake_rings(t)
             app, conf, logger, log_name = wsgi.init_request_processor(
                 conf_file, 'proxy-server')
-        # verify pipeline is catch_errors -> proxy-servery
+        # verify pipeline is catch_errors -> proxy-server
         expected = swift.common.middleware.catch_errors.CatchErrorMiddleware
         self.assert_(isinstance(app, expected))
         self.assert_(isinstance(app.app, swift.proxy.server.Application))
@@ -179,7 +179,7 @@ class TestWSGI(unittest.TestCase):
             _fake_rings(conf_root)
             app, conf, logger, log_name = wsgi.init_request_processor(
                 conf_dir, 'proxy-server')
-        # verify pipeline is catch_errors -> proxy-servery
+        # verify pipeline is catch_errors -> proxy-server
         expected = swift.common.middleware.catch_errors.CatchErrorMiddleware
         self.assert_(isinstance(app, expected))
         self.assert_(isinstance(app.app, swift.proxy.server.Application))
@@ -196,6 +196,71 @@ class TestWSGI(unittest.TestCase):
         # logger works
         logger.info('testing')
         self.assertEquals('proxy-server', log_name)
+
+    def test_init_request_processor_with_dynamic_pipeline(self):
+        config_dir = {
+            'proxy-server.conf.d/pipeline.conf': """
+            [pipeline:main]
+            pipeline = tempauth proxy-server
+            """,
+            'proxy-server.conf.d/app.conf': """
+            [app:proxy-server]
+            use = egg:swift#proxy
+            """,
+            'proxy-server.conf.d/catch-errors.conf': """
+            [filter:catch_errors]
+            use = egg:swift#catch_errors
+            before = #all, healthcheck 
+            """,
+            'proxy-server.conf.d/others.conf': """
+            [filter:tempauth]
+            use = egg:swift#tempauth
+
+            [filter:keystone]
+            paste.filter_factory = keystone.middleware.swift_auth:filter_factory
+            before = tempauth, proxy-server
+
+            [filter:authtoken]
+            paste.filter_factory = keystone.middleware.auth_token:filter_factory
+            before = keystone, tempauth, proxy-server 
+
+            [filter:healthcheck]
+            use = egg:swift#healthcheck
+            before = #all, catch_errors 
+            """,
+        }
+
+        # strip indent from test config contents
+        config_dir = dict((f, dedent(c)) for (f, c) in config_dir.items())
+        with temptree(*zip(*config_dir.items())) as conf_root:
+            conf_dir = os.path.join(conf_root, 'proxy-server.conf.d')
+            with open(os.path.join(conf_dir, 'swift.conf'), 'w') as f:
+                f.write('[DEFAULT]\nswift_dir = %s' % conf_root)
+            _fake_rings(conf_root)
+            app, conf, logger, log_name = wsgi.init_request_processor(
+                conf_dir, 'proxy-server')
+
+        # verify pipeline 
+        def get_pipeline(app):
+            yield app
+            while hasattr(app, 'app'):
+                app = app.app
+                yield app
+
+        def get_pipeline_class_names(app):
+            for ware in get_pipeline(app):
+                yield ware.__class__.__name__
+
+        expected_classnames = [
+            'CatchErrorsMiddleware', 
+            'HealthCheckMiddleware',
+            'AuthTokenMiddleware',
+            'KeystoneMiddleware',
+            'TempAuth',
+            'Application']
+
+        pipeline_classnames = list(get_pipeline_class_names(app))
+        self.assertEquals(expected_classnames, pipeline_classnames)
 
     def test_get_socket(self):
         # stubs
