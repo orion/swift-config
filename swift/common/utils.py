@@ -2243,3 +2243,28 @@ def parse_content_type(content_type):
             value = m[1].strip()
             parm_list.append((key, value))
     return content_type, parm_list
+
+
+def bifurcate(predicate, iterable):
+    """
+    Eagerly separate objects into two groups according to a predicate. 
+    """
+    trues = []
+    falses = []
+    for o in iterable:
+        if predicate(o):
+            trues.append(o)
+        else:
+            falses.append(o)
+    return trues, falses
+
+
+def pairwise(iterable):
+    """
+    Iterate through pairs containing adjacent members of an iterable.
+    s -> (s0,s1), (s1,s2), (s2, s3), ...
+    """
+    a, b = itertools.tee(iterable)
+    next(b, None)
+    return itertools.izip(a, b)
+

@@ -1550,6 +1550,23 @@ log_name = %(yarr)s'''
             utils.parse_content_type(r'text/plain; x="\""; a'),
             ('text/plain', [('x', r'"\""'), ('a', '')]))
 
+    def test_pairwise(self):
+        def pairs(l):
+            return list(utils.pairwise(l))
+
+        self.assertEquals([], pairs([]))
+        self.assertEquals([], pairs([1]))
+        self.assertEquals([(1,2)], pairs([1,2]))
+        self.assertEquals([(1,2), (2,3)], pairs([1,2,3]))
+
+    def test_bifurcate(self):
+        is_odd = lambda x: x % 2
+        bifurcate = lambda l: utils.bifurcate(is_odd, l)
+
+        self.assertEquals(([],[]), bifurcate([]))
+        self.assertEquals(([],[2,4]), bifurcate([2,4]))
+        self.assertEquals(([1,3],[]), bifurcate([1,3]))
+        self.assertEquals(([3,1],[4,2]), bifurcate([4,3,2,1]))
 
 class TestFileLikeIter(unittest.TestCase):
 
