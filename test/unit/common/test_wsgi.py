@@ -27,8 +27,9 @@ from textwrap import dedent
 from gzip import GzipFile
 from StringIO import StringIO
 from collections import defaultdict
-from contextlib import closing
+from contextlib import contextmanager, closing
 from urllib import quote
+from tempfile import mkstemp
 
 from eventlet import listen
 
@@ -619,6 +620,56 @@ class TestWSGIContext(unittest.TestCase):
         self.assertEquals(wc._response_status, '404 Not Found')
         self.assertEquals(''.join(it), 'Ok\n')
 
+@contextmanager
+def temp_config(contents):
+    fd, fn = mkstemp()
+    try:
+        fh = os.fdopen(fd, "w")
+        fh.write(contents)
+        fh.close()
+        loader = wsgi.NamedConfigLoader(fn)
+        yield loader.parser
+    finally:
+        os.unlink(fn)
 
+
+class TestConfigParsing(unittest.TestCase):
+    def setUp(self):
+        self.basic_config = dedent("""
+            [pipeline:main]
+            pipeline = catch_errors proxy-server
+
+            [app:proxy-server]
+            use = egg:swift#proxy
+            conn_timeout = 0.2
+
+            [filter:catch_errors]
+            use = egg:swift#catch_errors
+            """)
+
+    def append_to_config(self, config_lines):
+        return dedent("%s\n%s" % (self.basic_config, config_lines))
+
+    def test_basic_interpolation(self):
+        config_text = self.append_to_config("""
+            [filter:attheend]
+            after = proxy-server
+
+            [filter:inbetween]
+            before = proxy-server
+            after = catch_errors
+
+            [filter:atthestart]
+            before = catch_errors
+            """)
+
+        with temp_config(config_text) as config:
+            from pprint import pprint
+            pprint(config)
+            pprint(config.__dict__)
+
+        self.assertTrue(False)
+
+        
 if __name__ == '__main__':
     unittest.main()
