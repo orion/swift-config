@@ -664,11 +664,15 @@ class TestConfigParsing(unittest.TestCase):
             """)
 
         with temp_config(config_text) as config:
-            from pprint import pprint
-            pprint(config)
-            pprint(config.__dict__)
-
-        self.assertTrue(False)
+            #from pprint import pprint
+            #pprint(config.__dict__)
+            #pprint(config.sections())
+            #pprint(config.items('pipeline:main'))
+            #pprint(config.get('pipeline:main', 'pipeline'))
+                
+            pipeline = config.get('pipeline:main', 'pipeline')
+            expected = 'atthestart catch_errors inbetween proxy-server attheend'
+            self.assertEquals(expected, pipeline)
 
         
 if __name__ == '__main__':
