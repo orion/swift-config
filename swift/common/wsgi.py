@@ -17,12 +17,15 @@
 
 import errno
 import os
+import re
 import signal
 import time
+import copy
 import mimetools
 from gettext import gettext as _
 from itertools import chain
 from StringIO import StringIO
+from collections import defaultdict
 
 import eventlet
 import eventlet.debug
@@ -35,7 +38,9 @@ from swift.common import utils
 from swift.common.swob import Request
 from swift.common.utils import capture_stdio, disable_fallocate, \
     drop_privileges, get_logger, NullLogger, config_true_value, \
-    validate_configuration, get_hub, config_auto_int_value
+    validate_configuration, get_hub, config_auto_int_value, \
+    bifurcate, pairwise
+
 
 try:
     import multiprocessing
@@ -49,6 +54,10 @@ class NamedConfigLoader(loadwsgi.ConfigLoader):
     Patch paste.deploy's ConfigLoader so each context object will know what
     config section it came from.
     """
+    def __init__(self, filename):
+        super(loadwsgi.ConfigLoader, self).__init__(filename)
+        pipeline = PipelineBuilder(self.parser)
+        self.parser.set('pipeline:main', 'pipeline', pipeline.pipeline_str())
 
     def get_context(self, object_type, name=None, global_conf=None):
         context = super(NamedConfigLoader, self).get_context(
@@ -88,6 +97,102 @@ def _loadconfigdir(object_type, uri, path, name, relative_to, global_conf):
 
 # add config_dir parsing to paste.deploy
 loadwsgi._loaders['config_dir'] = _loadconfigdir
+
+
+class PipelineBuilder(object):
+    def __init__(self, config):
+        self.config = config
+        self.pipeline = []
+        self.ingest_config(*config.sections())
+
+    def pipeline_str(self):
+        return ' '.join(self.pipeline)
+
+    def ingest_config(self, *sections):
+        deps = defaultdict(list)
+
+        providers = self._group_providers_by_service(sections)
+
+        if self.config.has_option('pipeline:main', 'pipeline'):
+            starting_pipeline = self.config.get('pipeline:main', 'pipeline')
+            pipeline_elements = re.split('\s+', starting_pipeline)
+            for current, following in pairwise(pipeline_elements):
+                deps[current].append(following)
+
+        has_ordinal = lambda section: self.config.has_option(section, 'order')
+        with_ordinal, no_ordinal = bifurcate(has_ordinal, sections)
+        with_ordinal.sort(key=lambda section: self.config.getint(section, 'order'))
+
+        for current, following in pairwise(with_ordinal):
+            deps[current].append(following)
+
+        for section in sorted(no_ordinal):
+            services, constraints = self._get_constraints(section, 'before')
+            for constraint in constraints:
+                deps[section].append(constraint)
+
+            for service in services:
+                for provider in providers[service]:
+                    deps[section].append(provider)
+
+            services, constraints = self._get_constraints(section, 'after')
+            for constraint in constraints:
+                deps[constraint].append(section)
+
+            for service in services:
+                for provider in providers[service]:
+                    deps[provider].append(section)
+
+        self.pipeline = [n for n in self._dequalify(self._toposort(deps))]
+
+    def _dequalify(self, names):
+        for name in names:
+            parts = name.partition(':')
+            yield parts[-1] or parts[0] 
+
+    def _get_constraints(self, section, position):
+        services, constraints = [], []
+        if self.config.has_option(section, position):
+            raw_constraints = re.split('\s+', self.config.get(section, position))
+            provider_test = lambda c: c.startswith('provides:')
+            services, constraints = bifurcate(provider_test, raw_constraints)
+            services = [c[9:] for c in services]
+        return services, constraints
+
+    def _group_providers_by_service(self, sections):
+        providers = defaultdict(list)
+        for section in sections:
+            if self.config.has_option(section, 'provides'):
+                services = re.split('\s+', self.config.get(section, 'provides'))
+                for service in services:
+                    providers[service].append(section)
+        return providers
+
+    def _invert_graph(self, graph):
+        inverted = defaultdict(list)
+        for u, v in graph.items():
+            for node in v:
+                inverted[node].append(u)
+        return inverted
+
+    def _toposort(self, graph):
+        result = []
+        inverted = self._invert_graph(graph)
+        roots = set(graph.keys()).difference(inverted.keys())
+
+        while roots:
+            n = roots.pop()
+            result.append(n)
+            for child in copy.copy(graph[n]):
+                graph[n].remove(child)
+                inverted = self._invert_graph(graph)
+                if not child in inverted:
+                    roots.add(child)
+
+        if any(graph.values()):
+            raise Exception("Cycle found.")
+
+        return result
 
 
 def wrap_conf_type(f):

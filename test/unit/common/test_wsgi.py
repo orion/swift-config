@@ -647,33 +647,30 @@ class TestConfigParsing(unittest.TestCase):
             use = egg:swift#catch_errors
             """)
 
-    def append_to_config(self, config_lines):
-        return dedent("%s\n%s" % (self.basic_config, config_lines))
+    def to_config(self, config_data):
+        config = '' 
+        for entry in config_data:
+            config += '[filter:%s]\n' % entry[0]
+            for attrs in entry[1]:
+                config += '%s = %s\n' % tuple(attrs)
+        config += '\n'
+        return config
+
+    def append_config(self, config_lines):
+        return "%s\n%s" % (self.basic_config, self.to_config(config_lines))
 
     def test_basic_interpolation(self):
-        config_text = self.append_to_config("""
-            [filter:attheend]
-            after = proxy-server
-
-            [filter:inbetween]
-            before = proxy-server
-            after = catch_errors
-
-            [filter:atthestart]
-            before = catch_errors
-            """)
+        added_config = [
+            ('attheend', (('after', 'proxy-server'),)),
+            ('between', (('before', 'proxy-server'), 
+                         ('after', 'catch_errors'))),
+            ('atthestart', (('before', 'catch_errors'),))]
+        config_text = self.append_config(added_config)
 
         with temp_config(config_text) as config:
-            #from pprint import pprint
-            #pprint(config.__dict__)
-            #pprint(config.sections())
-            #pprint(config.items('pipeline:main'))
-            #pprint(config.get('pipeline:main', 'pipeline'))
-                
             pipeline = config.get('pipeline:main', 'pipeline')
-            expected = 'atthestart catch_errors inbetween proxy-server attheend'
+            expected = 'atthestart catch_errors between proxy-server attheend'
             self.assertEquals(expected, pipeline)
 
-        
 if __name__ == '__main__':
     unittest.main()
