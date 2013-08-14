@@ -633,6 +633,7 @@ def temp_config(contents):
         os.unlink(fn)
 
 
+from pprint import pprint
 class TestConfigParsing(unittest.TestCase):
     def setUp(self):
         self.basic_config = dedent("""
@@ -647,17 +648,18 @@ class TestConfigParsing(unittest.TestCase):
             use = egg:swift#catch_errors
             """)
 
-    def to_config(self, config_data):
+    def to_config(self, config_data, pipeline='main'):
         config = '' 
         for entry in config_data:
             config += '[filter:%s]\n' % entry[0]
+            config += 'pipeline = %s\n' % pipeline
             for attrs in entry[1]:
                 config += '%s = %s\n' % tuple(attrs)
         config += '\n'
         return config
 
     def append_config(self, config_lines):
-        return "%s\n%s" % (self.basic_config, self.to_config(config_lines))
+        return "%s\n%s" % (self.basic_config, config_lines)
 
     def test_basic_interpolation(self):
         added_config = [
@@ -665,11 +667,38 @@ class TestConfigParsing(unittest.TestCase):
             ('between', (('before', 'proxy-server'), 
                          ('after', 'catch_errors'))),
             ('atthestart', (('before', 'catch_errors'),))]
-        config_text = self.append_config(added_config)
+        config_text = self.append_config(self.to_config(added_config))
+        print(config_text)
 
         with temp_config(config_text) as config:
             pipeline = config.get('pipeline:main', 'pipeline')
             expected = 'atthestart catch_errors between proxy-server attheend'
+            self.assertEquals(expected, pipeline)
+
+    def test_provides(self):
+        config_text = dedent(self.basic_config) + dedent("""
+            [filter:kerberos]
+            pipeline = main
+            provides = authentication
+            before = proxy-server provides:authorization
+            after = catch_errors
+            
+            [filter:ldap]
+            pipeline = main
+            provides = authorization
+            before = proxy-server
+            after = provides:authentication catch_errors
+
+            [filter:coffee]
+            pipeline = main
+            provides = java
+            before = provides:authentication provides:authorization 
+            after = catch_errors
+            """)
+        
+        with temp_config(config_text) as config:
+            pipeline = config.get('pipeline:main', 'pipeline')
+            expected = 'catch_errors coffee kerberos ldap proxy-server'
             self.assertEquals(expected, pipeline)
 
 if __name__ == '__main__':
