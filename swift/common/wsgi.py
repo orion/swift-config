@@ -98,7 +98,27 @@ def _loadconfigdir(object_type, uri, path, name, relative_to, global_conf):
 # add config_dir parsing to paste.deploy
 loadwsgi._loaders['config_dir'] = _loadconfigdir
 
+def dequalify(name):
+    parts = name.partition(':')
+    return parts[-1] or parts[0]
 
+def dequalify_names(names):
+    return [dequalify(name) for name in names]
+
+def qualify(app, name):
+    if name == app:
+        return 'app:%s' % name
+    return 'filter:%s' % name
+
+def qualify_names(app, names):
+    return [qualify(app, name) for name in names]
+
+#
+# TODO: Consider a pipelinebuilder for each pipeline, with the other control
+# flow outside of that.  You could move app and such to properties, and then
+# make the partials and qualified functions methods instead.
+#
+from pprint import pprint
 class PipelineBuilder(object):
     def __init__(self, config):
         self.config = config
@@ -110,12 +130,19 @@ class PipelineBuilder(object):
 
     def ingest_config(self, *sections):
         deps = defaultdict(list)
-
+        pipeline_members = [s for s in sections if s.startswith('filter:') or
+                            s.startswith('app:')]
+        # TODO: Can we just use the qualified name here?
+        app = next(dequalify(s) for s in sections if s.startswith('app:'))
+        all_sections = dequalify_names(pipeline_members)
         providers = self._group_providers_by_service(sections)
+
+        def get_constraints(section, position):
+            return self._get_constraints(app, pipeline_members, section, position)
 
         if self.config.has_option('pipeline:main', 'pipeline'):
             starting_pipeline = self.config.get('pipeline:main', 'pipeline')
-            pipeline_elements = re.split('\s+', starting_pipeline)
+            pipeline_elements = qualify_names(app, re.split('\s+', starting_pipeline))
             for current, following in pairwise(pipeline_elements):
                 deps[current].append(following)
 
@@ -127,7 +154,7 @@ class PipelineBuilder(object):
             deps[current].append(following)
 
         for section in sorted(no_ordinal):
-            services, constraints = self._get_constraints(section, 'before')
+            services, constraints = get_constraints(section, 'before') 
             for constraint in constraints:
                 deps[section].append(constraint)
 
@@ -135,7 +162,7 @@ class PipelineBuilder(object):
                 for provider in providers[service]:
                     deps[section].append(provider)
 
-            services, constraints = self._get_constraints(section, 'after')
+            services, constraints = get_constraints(section, 'after') 
             for constraint in constraints:
                 deps[constraint].append(section)
 
@@ -143,20 +170,29 @@ class PipelineBuilder(object):
                 for provider in providers[service]:
                     deps[provider].append(section)
 
+        inverted_deps = self._invert_graph(deps)
+        for section in pipeline_members:
+            if section not in deps and section not in inverted_deps:
+                deps[section].append(app)
+
+        # TODO: replace with dequalify function.  Is it even needed here?
         self.pipeline = [n for n in self._dequalify(self._toposort(deps))]
 
+    # TODO: remove
     def _dequalify(self, names):
         for name in names:
             parts = name.partition(':')
             yield parts[-1] or parts[0] 
 
-    def _get_constraints(self, section, position):
+    def _get_constraints(self, app, all_sections, section, position):
         services, constraints = [], []
         if self.config.has_option(section, position):
             raw_constraints = re.split('\s+', self.config.get(section, position))
             provider_test = lambda c: c.startswith('provides:')
             services, constraints = bifurcate(provider_test, raw_constraints)
-            services = [c[9:] for c in services]
+            # TODO: replace with new dequalify
+            services = [s[9:] for s in services]
+            constraints = [c for c in qualify_names(app, constraints) if c in all_sections]
         return services, constraints
 
     def _group_providers_by_service(self, sections):

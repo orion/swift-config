@@ -22,6 +22,7 @@ import mimetools
 import socket
 import unittest
 import os
+import re
 import pickle
 from textwrap import dedent
 from gzip import GzipFile
@@ -700,6 +701,26 @@ class TestConfigParsing(unittest.TestCase):
             pipeline = config.get('pipeline:main', 'pipeline')
             expected = 'catch_errors coffee kerberos ldap proxy-server'
             self.assertEquals(expected, pipeline)
+
+    def test_nonexistent_prerequisites(self):
+        config_text = dedent(self.basic_config) + dedent("""
+            [filter:deluded]
+            pipeline = main
+            before = doesnotexist
+            after = provides:nonexistent 
+            
+            [filter:fool]
+            pipeline = main
+            provides = authorization
+            before = imaginary, figmental
+            after = illusive; fictional; hallucinatory 
+            """)
+        
+        with temp_config(config_text) as config:
+            pipeline = config.get('pipeline:main', 'pipeline')
+            expected = set(['catch_errors', 'proxy-server', 'deluded', 'fool'])
+            actual = set(re.split('\s+', pipeline))
+            self.assertEquals(expected, actual)
 
 if __name__ == '__main__':
     unittest.main()
