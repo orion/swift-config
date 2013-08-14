@@ -669,7 +669,6 @@ class TestConfigParsing(unittest.TestCase):
                          ('after', 'catch_errors'))),
             ('atthestart', (('before', 'catch_errors'),))]
         config_text = self.append_config(self.to_config(added_config))
-        print(config_text)
 
         with temp_config(config_text) as config:
             pipeline = config.get('pipeline:main', 'pipeline')
@@ -702,7 +701,7 @@ class TestConfigParsing(unittest.TestCase):
             expected = 'catch_errors coffee kerberos ldap proxy-server'
             self.assertEquals(expected, pipeline)
 
-    def test_nonexistent_prerequisites(self):
+    def test_nonexistent_constraints(self):
         config_text = dedent(self.basic_config) + dedent("""
             [filter:deluded]
             pipeline = main
@@ -721,6 +720,36 @@ class TestConfigParsing(unittest.TestCase):
             expected = set(['catch_errors', 'proxy-server', 'deluded', 'fool'])
             actual = set(re.split('\s+', pipeline))
             self.assertEquals(expected, actual)
+
+    def test_multiple_pipelines(self):
+        config_text = dedent(self.basic_config) + dedent("""
+            [pipeline:secondary]
+            pipeline = process-successes proxy-server
+
+            [filter:shortbus]
+            pipeline = main 
+            after = proxy-server
+            
+            [filter:amalgamut]
+            pipeline = main secondary
+            before = catch-errors process-successes
+
+            [filter:notpresent]
+            before = catch-errors
+
+            [filter:notarealpipeline]
+            pipeline = doesnotexist
+            before = catch-errors
+            """)
+        
+        with temp_config(config_text) as config:
+            pipeline = config.get('pipeline:main', 'pipeline')
+            expected = 'amalgamut catch_errors proxy-server shortbus'
+            self.assertEquals(expected, pipeline)
+
+            pipeline = config.get('pipeline:secondary', 'pipeline')
+            expected = 'amalgamut catch_errors proxy-server shortbus'
+            self.assertEquals(expected, pipeline)
 
 if __name__ == '__main__':
     unittest.main()
