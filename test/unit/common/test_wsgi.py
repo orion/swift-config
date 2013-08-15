@@ -640,6 +640,7 @@ class TestConfigParsing(unittest.TestCase):
         self.basic_config = dedent("""
             [pipeline:main]
             pipeline = catch_errors proxy-server
+            dynamic = True
 
             [app:proxy-server]
             use = egg:swift#proxy
@@ -724,7 +725,11 @@ class TestConfigParsing(unittest.TestCase):
     def test_multiple_pipelines(self):
         config_text = dedent(self.basic_config) + dedent("""
             [pipeline:secondary]
-            pipeline = process-successes proxy-server
+            dynamic = 1
+            pipeline = process_successes proxy-server
+
+            [pipeline:shouldbeignored]
+            pipeline = proxy-server 
 
             [filter:shortbus]
             pipeline = main 
@@ -732,14 +737,14 @@ class TestConfigParsing(unittest.TestCase):
             
             [filter:amalgamut]
             pipeline = main secondary
-            before = catch-errors process-successes
+            before = catch_errors process_successes
 
             [filter:notpresent]
-            before = catch-errors
+            before = catch_errors
 
             [filter:notarealpipeline]
             pipeline = doesnotexist
-            before = catch-errors
+            before = catch_errors
             """)
         
         with temp_config(config_text) as config:
@@ -748,8 +753,11 @@ class TestConfigParsing(unittest.TestCase):
             self.assertEquals(expected, pipeline)
 
             pipeline = config.get('pipeline:secondary', 'pipeline')
-            expected = 'amalgamut catch_errors proxy-server shortbus'
+            expected = 'amalgamut process_successes proxy-server'
             self.assertEquals(expected, pipeline)
+
+            pipeline = config.get('pipeline:shouldbeignored', 'pipeline')
+            self.assertEquals('proxy-server', pipeline)
 
 if __name__ == '__main__':
     unittest.main()

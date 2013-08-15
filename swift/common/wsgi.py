@@ -1,4 +1,3 @@
-# Copyright (c) 2010-2012 OpenStack, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -56,8 +55,7 @@ class NamedConfigLoader(loadwsgi.ConfigLoader):
     """
     def __init__(self, filename):
         super(loadwsgi.ConfigLoader, self).__init__(filename)
-        pipeline = PipelineBuilder(self.parser)
-        self.parser.set('pipeline:main', 'pipeline', pipeline.pipeline_str())
+        PipelineBuilder.assemble_all_dynamic_pipelines(self.parser)
 
     def get_context(self, object_type, name=None, global_conf=None):
         context = super(NamedConfigLoader, self).get_context(
@@ -113,38 +111,68 @@ def qualify(app, name):
 def qualify_names(app, names):
     return [qualify(app, name) for name in names]
 
-#
-# TODO: Consider a pipelinebuilder for each pipeline, with the other control
-# flow outside of that.  You could move app and such to properties, and then
-# make the partials and qualified functions methods instead.
-#
 from pprint import pprint
 class PipelineBuilder(object):
-    def __init__(self, config):
-        self.config = config
+    def __init__(self, config, pipeline_name):
         self.pipeline = []
+        self.config = config
+        self.pipeline_name = pipeline_name
+
+        static_pipeline_str = self.config.get(self.pipeline_name, 'pipeline')
+        static_pipeline = re.split('\s+', static_pipeline_str)
+
+        self.app = self._find_app(static_pipeline)
+        self.static_pipeline = qualify_names(self.app, static_pipeline)
+        self.pipeline_members = self._identify_pipeline_members()
+
+        # pprint([self.app, self.static_pipeline, self.pipeline_members])
+
         self.ingest_config(*config.sections())
 
+    # TODO: else raise exception
+    def _find_app(self, static_pipeline):
+        apps = [s for s in self.config.sections() if s.startswith('app:')]
+        for section in static_pipeline:
+            fqname = 'app:' + section
+            if fqname in apps:
+                return section
+
+    @classmethod
+    def assemble_all_dynamic_pipelines(klass, config):
+        pipelines = [s for s in config.sections() if s.startswith('pipeline:')
+                        and config.has_option(s, 'dynamic')
+                        and utils.config_true_value(config.get(s, 'dynamic'))]
+        for pipeline_section in pipelines:
+            pipeline = klass(config, pipeline_section)
+            config.set(pipeline_section, 'pipeline', pipeline.pipeline_str())
+
+    # TODO: Make this to_s?  Move it to the bottom.  Or get rid of it.  Or mark
+    # it as internal.
     def pipeline_str(self):
         return ' '.join(self.pipeline)
 
+    def _identify_pipeline_members(self):
+        '''
+        A member of the current pipeline if it is in the static pipeline string
+        or if it specifically targets this pipeline in its filter definition.
+        '''
+        def is_member(section):
+            if self.config.has_option(section, 'pipeline'):
+                targets = re.split('\s+', self.config.get(section, 'pipeline'))
+                if dequalify(self.pipeline_name) in targets:
+                    return True
+
+        members = set(self.static_pipeline)
+        members.update(s for s in self.config.sections() if is_member(s))
+        return members
+
+
     def ingest_config(self, *sections):
         deps = defaultdict(list)
-        pipeline_members = [s for s in sections if s.startswith('filter:') or
-                            s.startswith('app:')]
-        # TODO: Can we just use the qualified name here?
-        app = next(dequalify(s) for s in sections if s.startswith('app:'))
-        all_sections = dequalify_names(pipeline_members)
         providers = self._group_providers_by_service(sections)
 
-        def get_constraints(section, position):
-            return self._get_constraints(app, pipeline_members, section, position)
-
-        if self.config.has_option('pipeline:main', 'pipeline'):
-            starting_pipeline = self.config.get('pipeline:main', 'pipeline')
-            pipeline_elements = qualify_names(app, re.split('\s+', starting_pipeline))
-            for current, following in pairwise(pipeline_elements):
-                deps[current].append(following)
+        for current, following in pairwise(self.static_pipeline):
+            deps[current].append(following)
 
         has_ordinal = lambda section: self.config.has_option(section, 'order')
         with_ordinal, no_ordinal = bifurcate(has_ordinal, sections)
@@ -153,8 +181,8 @@ class PipelineBuilder(object):
         for current, following in pairwise(with_ordinal):
             deps[current].append(following)
 
-        for section in sorted(no_ordinal):
-            services, constraints = get_constraints(section, 'before') 
+        for section in sorted(self.pipeline_members):
+            services, constraints = self.get_constraints(section, 'before') 
             for constraint in constraints:
                 deps[section].append(constraint)
 
@@ -162,7 +190,7 @@ class PipelineBuilder(object):
                 for provider in providers[service]:
                     deps[section].append(provider)
 
-            services, constraints = get_constraints(section, 'after') 
+            services, constraints = self.get_constraints(section, 'after') 
             for constraint in constraints:
                 deps[constraint].append(section)
 
@@ -171,20 +199,13 @@ class PipelineBuilder(object):
                     deps[provider].append(section)
 
         inverted_deps = self._invert_graph(deps)
-        for section in pipeline_members:
+        for section in self.pipeline_members:
             if section not in deps and section not in inverted_deps:
-                deps[section].append(app)
+                deps[section].append('app:' + self.app)
 
-        # TODO: replace with dequalify function.  Is it even needed here?
-        self.pipeline = [n for n in self._dequalify(self._toposort(deps))]
+        self.pipeline = dequalify_names(self._toposort(deps))
 
-    # TODO: remove
-    def _dequalify(self, names):
-        for name in names:
-            parts = name.partition(':')
-            yield parts[-1] or parts[0] 
-
-    def _get_constraints(self, app, all_sections, section, position):
+    def get_constraints(self, section, position):
         services, constraints = [], []
         if self.config.has_option(section, position):
             raw_constraints = re.split('\s+', self.config.get(section, position))
@@ -192,7 +213,8 @@ class PipelineBuilder(object):
             services, constraints = bifurcate(provider_test, raw_constraints)
             # TODO: replace with new dequalify
             services = [s[9:] for s in services]
-            constraints = [c for c in qualify_names(app, constraints) if c in all_sections]
+            constraints = [c for c in qualify_names(self.app, constraints) if c
+                           in self.pipeline_members]
         return services, constraints
 
     def _group_providers_by_service(self, sections):
@@ -226,7 +248,8 @@ class PipelineBuilder(object):
                     roots.add(child)
 
         if any(graph.values()):
-            raise Exception("Cycle found.")
+            raise ValueError("Cycle found for pipeline %s!" %
+                             self.pipeline_name)
 
         return result
 
