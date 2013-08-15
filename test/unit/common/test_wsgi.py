@@ -739,10 +739,10 @@ class TestConfigParsing(unittest.TestCase):
             pipeline = main secondary
             before = catch_errors process_successes
 
-            [filter:notpresent]
+            [filter:not_present_in_a_pipeline]
             before = catch_errors
 
-            [filter:notarealpipeline]
+            [filter:targets_a_nonexistent_pipeline]
             pipeline = doesnotexist
             before = catch_errors
             """)

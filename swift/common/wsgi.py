@@ -174,13 +174,6 @@ class PipelineBuilder(object):
         for current, following in pairwise(self.static_pipeline):
             deps[current].append(following)
 
-        has_ordinal = lambda section: self.config.has_option(section, 'order')
-        with_ordinal, no_ordinal = bifurcate(has_ordinal, sections)
-        with_ordinal.sort(key=lambda section: self.config.getint(section, 'order'))
-
-        for current, following in pairwise(with_ordinal):
-            deps[current].append(following)
-
         for section in sorted(self.pipeline_members):
             services, constraints = self.get_constraints(section, 'before') 
             for constraint in constraints:
