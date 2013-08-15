@@ -211,11 +211,9 @@ class PipelineBuilder(object):
             raw_constraints = re.split('\s+', self.config.get(section, position))
             provider_test = lambda c: c.startswith('provides:')
             services, constraints = bifurcate(provider_test, raw_constraints)
-            # TODO: replace with new dequalify
-            services = [s[9:] for s in services]
             constraints = [c for c in qualify_names(self.app, constraints) if c
                            in self.pipeline_members]
-        return services, constraints
+        return dequalify_names(services), constraints
 
     def _group_providers_by_service(self, sections):
         providers = defaultdict(list)
