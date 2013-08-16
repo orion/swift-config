@@ -666,7 +666,7 @@ class TestConfigParsing(unittest.TestCase):
     # TODO: revert this to the text-based system
     def test_basic_interpolation(self):
         added_config = [
-            ('attheend', (('after', 'proxy-server'),)),
+            ('attheend', (('after', 'between'),)),
             ('between', (('before', 'proxy-server'), 
                          ('after', 'catch_errors'))),
             ('atthestart', (('before', 'catch_errors'),))]
@@ -674,7 +674,7 @@ class TestConfigParsing(unittest.TestCase):
 
         with temp_config(config_text) as config:
             pipeline = config.get('pipeline:main', 'pipeline')
-            expected = 'atthestart catch_errors between proxy-server attheend'
+            expected = 'atthestart catch_errors between attheend proxy-server'
             self.assertEquals(expected, pipeline)
 
     def test_provides(self):
@@ -734,7 +734,8 @@ class TestConfigParsing(unittest.TestCase):
 
             [filter:shortbus]
             pipeline = main 
-            after = proxy-server
+            after = catch_errors process_successes 
+            before = proxy-server
             
             [filter:amalgamut]
             pipeline = main secondary
@@ -750,7 +751,7 @@ class TestConfigParsing(unittest.TestCase):
         
         with temp_config(config_text) as config:
             pipeline = config.get('pipeline:main', 'pipeline')
-            expected = 'amalgamut catch_errors proxy-server shortbus'
+            expected = 'amalgamut catch_errors shortbus proxy-server'
             self.assertEquals(expected, pipeline)
 
             pipeline = config.get('pipeline:secondary', 'pipeline')
@@ -780,7 +781,7 @@ class TestConfigParsing(unittest.TestCase):
 
         with temp_config(config_text) as config:
             pipeline = config.get('pipeline:main', 'pipeline')
-            expected = 'yet-earlier early catch_errors proxy-server late'
+            expected = 'yet-earlier early catch_errors late proxy-server'
             self.assertEquals(expected, pipeline)
 
 if __name__ == '__main__':

@@ -121,22 +121,19 @@ class PipelineBuilder(object):
         self.config = config
         self.pipeline_name = pipeline_name
 
+        # TODO: reinforce that static pipeline must have at least one entry
+        # TODO: make #start provides:start; don't expose #start; same with #end
         static_pipeline = self.config_value_as_list(pipeline_name, 'pipeline')
 
-        self.app = self._find_app(static_pipeline)
-        self.static_pipeline = qualify_names(self.app, static_pipeline)
+        self.app_name = static_pipeline[-1] 
+        self.app = 'app:' + self.app_name
+        self.static_pipeline = ['filter:' + s for s in static_pipeline] 
+        # TODO: Confirm that this approach works with composites, etc.
+        self.static_pipeline[-1] = self.app
         self.pipeline_members = self._identify_pipeline_members()
 
         graph = self.create_dependency_graph()
         self.pipeline = self._render_pipeline(graph)
-
-    # TODO: else raise exception
-    def _find_app(self, static_pipeline):
-        apps = self.config_sections_of_type('app') 
-        for section in static_pipeline:
-            fqname = 'app:' + section
-            if fqname in apps:
-                return section
 
     @classmethod
     def assemble_all_dynamic_pipelines(klass, config):
@@ -168,10 +165,16 @@ class PipelineBuilder(object):
         deps = defaultdict(list)
         providers = self._group_providers_by_service(self.pipeline_members)
 
+        # TODO: This will be unnecessary when app goes after everything.
+        deps['#end'].append(self.app)
+
         for current, following in pairwise(self.static_pipeline):
             deps[current].append(following)
 
         for section in sorted(self.pipeline_members):
+            if section == self.app:
+                continue
+
             services, constraints = self.get_constraints(section, 'before') 
             for constraint in constraints:
                 deps[section].append(constraint)
@@ -197,16 +200,19 @@ class PipelineBuilder(object):
             if '#end' not in chain(deps[section], inverted_deps[section]):
                 deps[section].append('#end')
             if section not in chain(deps, inverted_deps): 
-                deps[section].append('app:' + self.app)
+                deps[section].append(self.app)
+
+        if deps[self.app]:
+            raise ValueError("ERROR: Filters placed after app! %r" % 
+                                            str(deps[self.app]))
 
         return deps
 
     def get_constraints(self, section, position):
-        services, constraints = [], []
         raw_constraints = self.config_value_as_list(section, position)
-        is_provider = lambda c: c.startswith('provides:')
-        services, constraints = bifurcate(is_provider, raw_constraints)
-        constraints = [c for c in qualify_names(self.app, constraints) if c
+        service_dependence = lambda c: c.startswith('provides:')
+        services, constraints = bifurcate(service_dependence, raw_constraints)
+        constraints = [c for c in qualify_names(self.app_name, constraints) if c
                         in self.pipeline_members]
         return dequalify_names(services), constraints
 
@@ -258,6 +264,7 @@ class PipelineBuilder(object):
         if self.config.has_option(section, setting):
             values = re.split('\s+', self.config.get(section, setting))
         return values
+
 
 def wrap_conf_type(f):
     """
