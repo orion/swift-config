@@ -125,7 +125,8 @@ class PipelineBuilder(object):
         self.static_pipeline = qualify_names(self.app, static_pipeline)
         self.pipeline_members = self._identify_pipeline_members()
 
-        self.ingest_config()
+        graph = self.create_dependency_graph()
+        self.pipeline = dequalify_names(self._toposort(graph))
 
     # TODO: else raise exception
     def _find_app(self, static_pipeline):
@@ -148,8 +149,9 @@ class PipelineBuilder(object):
 
     def _identify_pipeline_members(self):
         '''
-        A member of the current pipeline if it is in the static pipeline string
-        or if it specifically targets this pipeline in its filter definition.
+        A section is a member of the current pipeline if it is in the static 
+        pipeline string or if it specifically targets this pipeline in its 
+        filter definition.
         '''
         def is_member(section):
             targets = self.config_value_as_list(section, 'pipeline')
@@ -159,8 +161,7 @@ class PipelineBuilder(object):
         members.update(s for s in self.config.sections() if is_member(s))
         return members
 
-
-    def ingest_config(self):
+    def create_dependency_graph(self):
         deps = defaultdict(list)
         providers = self._group_providers_by_service(self.pipeline_members)
 
@@ -189,7 +190,7 @@ class PipelineBuilder(object):
             if section not in deps and section not in inverted_deps:
                 deps[section].append('app:' + self.app)
 
-        self.pipeline = dequalify_names(self._toposort(deps))
+        return deps
 
     def get_constraints(self, section, position):
         services, constraints = [], []
