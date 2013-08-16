@@ -111,6 +111,7 @@ def qualify(app, name):
 def qualify_names(app, names):
     return [qualify(app, name) for name in names]
 
+
 from pprint import pprint
 class PipelineBuilder(object):
     def __init__(self, config, pipeline_name):
@@ -118,20 +119,17 @@ class PipelineBuilder(object):
         self.config = config
         self.pipeline_name = pipeline_name
 
-        static_pipeline_str = self.config.get(self.pipeline_name, 'pipeline')
-        static_pipeline = re.split('\s+', static_pipeline_str)
+        static_pipeline = self.config_value_as_list(pipeline_name, 'pipeline')
 
         self.app = self._find_app(static_pipeline)
         self.static_pipeline = qualify_names(self.app, static_pipeline)
         self.pipeline_members = self._identify_pipeline_members()
 
-        # pprint([self.app, self.static_pipeline, self.pipeline_members])
-
-        self.ingest_config(*config.sections())
+        self.ingest_config()
 
     # TODO: else raise exception
     def _find_app(self, static_pipeline):
-        apps = [s for s in self.config.sections() if s.startswith('app:')]
+        apps = self.config_sections_of_type('app') 
         for section in static_pipeline:
             fqname = 'app:' + section
             if fqname in apps:
@@ -142,14 +140,11 @@ class PipelineBuilder(object):
         pipelines = [s for s in config.sections() if s.startswith('pipeline:')
                         and config.has_option(s, 'dynamic')
                         and utils.config_true_value(config.get(s, 'dynamic'))]
-        for pipeline_section in pipelines:
-            pipeline = klass(config, pipeline_section)
-            config.set(pipeline_section, 'pipeline', pipeline.pipeline_str())
 
-    # TODO: Make this to_s?  Move it to the bottom.  Or get rid of it.  Or mark
-    # it as internal.
-    def pipeline_str(self):
-        return ' '.join(self.pipeline)
+        for pipeline_section in pipelines:
+            builder = klass(config, pipeline_section)
+            pipeline_str = ' '.join(builder.pipeline)
+            config.set(pipeline_section, 'pipeline', pipeline_str)
 
     def _identify_pipeline_members(self):
         '''
@@ -157,19 +152,17 @@ class PipelineBuilder(object):
         or if it specifically targets this pipeline in its filter definition.
         '''
         def is_member(section):
-            if self.config.has_option(section, 'pipeline'):
-                targets = re.split('\s+', self.config.get(section, 'pipeline'))
-                if dequalify(self.pipeline_name) in targets:
-                    return True
+            targets = self.config_value_as_list(section, 'pipeline')
+            return dequalify(self.pipeline_name) in targets
 
         members = set(self.static_pipeline)
         members.update(s for s in self.config.sections() if is_member(s))
         return members
 
 
-    def ingest_config(self, *sections):
+    def ingest_config(self):
         deps = defaultdict(list)
-        providers = self._group_providers_by_service(sections)
+        providers = self._group_providers_by_service(self.pipeline_members)
 
         for current, following in pairwise(self.static_pipeline):
             deps[current].append(following)
@@ -200,21 +193,19 @@ class PipelineBuilder(object):
 
     def get_constraints(self, section, position):
         services, constraints = [], []
-        if self.config.has_option(section, position):
-            raw_constraints = re.split('\s+', self.config.get(section, position))
-            provider_test = lambda c: c.startswith('provides:')
-            services, constraints = bifurcate(provider_test, raw_constraints)
-            constraints = [c for c in qualify_names(self.app, constraints) if c
-                           in self.pipeline_members]
+        raw_constraints = self.config_value_as_list(section, position)
+        is_provider = lambda c: c.startswith('provides:')
+        services, constraints = bifurcate(is_provider, raw_constraints)
+        constraints = [c for c in qualify_names(self.app, constraints) if c
+                        in self.pipeline_members]
         return dequalify_names(services), constraints
 
     def _group_providers_by_service(self, sections):
         providers = defaultdict(list)
         for section in sections:
-            if self.config.has_option(section, 'provides'):
-                services = re.split('\s+', self.config.get(section, 'provides'))
-                for service in services:
-                    providers[service].append(section)
+            services = self.config_value_as_list(section, 'provides')
+            for service in services:
+                providers[service].append(section)
         return providers
 
     def _invert_graph(self, graph):
@@ -244,6 +235,15 @@ class PipelineBuilder(object):
 
         return result
 
+    def config_sections_of_type(self, prefix):
+        sections = self.config.sections()
+        return [s for s in sections if s.startswith(prefix + ':')]
+
+    def config_value_as_list(self, section, setting):
+        values = []
+        if self.config.has_option(section, setting):
+            values = re.split('\s+', self.config.get(section, setting))
+        return values
 
 def wrap_conf_type(f):
     """
