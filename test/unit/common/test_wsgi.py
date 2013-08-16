@@ -663,6 +663,7 @@ class TestConfigParsing(unittest.TestCase):
     def append_config(self, config_lines):
         return "%s\n%s" % (self.basic_config, config_lines)
 
+    # TODO: revert this to the text-based system
     def test_basic_interpolation(self):
         added_config = [
             ('attheend', (('after', 'proxy-server'),)),
@@ -758,6 +759,29 @@ class TestConfigParsing(unittest.TestCase):
 
             pipeline = config.get('pipeline:shouldbeignored', 'pipeline')
             self.assertEquals('proxy-server', pipeline)
+
+    def test_special_symbols(self):
+        config_text = dedent(self.basic_config) + dedent("""
+            [filter:early]
+            pipeline = main
+            provides = authentication
+            before = #start 
+
+            [filter:yet-earlier]
+            pipeline = main
+            provides = authentication
+            before = #start early 
+            
+            [filter:late]
+            pipeline = main
+            provides = authorization
+            after = #end 
+            """)
+
+        with temp_config(config_text) as config:
+            pipeline = config.get('pipeline:main', 'pipeline')
+            expected = 'yet-earlier early catch_errors proxy-server late'
+            self.assertEquals(expected, pipeline)
 
 if __name__ == '__main__':
     unittest.main()

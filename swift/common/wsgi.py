@@ -104,6 +104,8 @@ def dequalify_names(names):
     return [dequalify(name) for name in names]
 
 def qualify(app, name):
+    if name.startswith('#'):
+        return name
     if name == app:
         return 'app:%s' % name
     return 'filter:%s' % name
@@ -126,7 +128,7 @@ class PipelineBuilder(object):
         self.pipeline_members = self._identify_pipeline_members()
 
         graph = self.create_dependency_graph()
-        self.pipeline = dequalify_names(self._toposort(graph))
+        self.pipeline = self._render_pipeline(graph)
 
     # TODO: else raise exception
     def _find_app(self, static_pipeline):
@@ -157,7 +159,8 @@ class PipelineBuilder(object):
             targets = self.config_value_as_list(section, 'pipeline')
             return dequalify(self.pipeline_name) in targets
 
-        members = set(self.static_pipeline)
+        members = set(['#start', '#end'])
+        members.update(self.static_pipeline)
         members.update(s for s in self.config.sections() if is_member(s))
         return members
 
@@ -187,7 +190,13 @@ class PipelineBuilder(object):
 
         inverted_deps = self._invert_graph(deps)
         for section in self.pipeline_members:
-            if section not in deps and section not in inverted_deps:
+            if section.startswith('#'):
+                continue
+            if '#start' not in chain(deps[section], inverted_deps[section]):
+                deps['#start'].append(section)
+            if '#end' not in chain(deps[section], inverted_deps[section]):
+                deps[section].append('#end')
+            if section not in chain(deps, inverted_deps): 
                 deps[section].append('app:' + self.app)
 
         return deps
@@ -235,6 +244,10 @@ class PipelineBuilder(object):
                              self.pipeline_name)
 
         return result
+
+    def _render_pipeline(self, graph):
+        raw_pipeline = self._toposort(graph)
+        return [dequalify(s) for s in raw_pipeline if not s.startswith('#')]
 
     def config_sections_of_type(self, prefix):
         sections = self.config.sections()
