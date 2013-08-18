@@ -22,7 +22,7 @@ import time
 import copy
 import mimetools
 from gettext import gettext as _
-from itertools import chain
+from itertools import chain, repeat
 from StringIO import StringIO
 from collections import defaultdict
 
@@ -113,6 +113,15 @@ def qualify(app, name):
 def qualify_names(app, names):
     return [qualify(app, name) for name in names]
 
+def disambiguate_pipeline(pipeline):
+    found = dict(zip(iter(pipeline), repeat(0))) 
+    for item in pipeline:
+        found[item] += 1
+        if found[item] > 1:
+            yield "%s#%d" % (item, found[item])
+        else:
+            yield item
+
 
 from pprint import pprint
 class PipelineBuilder(object):
@@ -126,9 +135,10 @@ class PipelineBuilder(object):
         static_pipeline = self.config_value_as_list(pipeline_name, 'pipeline')
 
         self.app_name = static_pipeline[-1] 
+        # TODO: Confirm that this approach works with composites, etc.
         self.app = 'app:' + self.app_name
         self.static_pipeline = ['filter:' + s for s in static_pipeline] 
-        # TODO: Confirm that this approach works with composites, etc.
+        self.static_pipeline = list(disambiguate_pipeline(self.static_pipeline))
         self.static_pipeline[-1] = self.app
         self.pipeline_members = self._identify_pipeline_members()
 
@@ -252,8 +262,13 @@ class PipelineBuilder(object):
         return result
 
     def _render_pipeline(self, graph):
-        raw_pipeline = self._toposort(graph)
-        return [dequalify(s) for s in raw_pipeline if not s.startswith('#')]
+        pipeline = []
+        for item in self._toposort(graph):
+            if not item.startswith('#'):
+                item = item.partition('#')[0]
+                pipeline.append(dequalify(item))
+
+        return pipeline
 
     def config_sections_of_type(self, prefix):
         sections = self.config.sections()

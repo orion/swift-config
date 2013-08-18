@@ -784,5 +784,23 @@ class TestConfigParsing(unittest.TestCase):
             expected = 'yet-earlier early catch_errors late proxy-server'
             self.assertEquals(expected, pipeline)
 
+    def test_duplicate_items(self):
+        config_text = dedent(self.basic_config) + dedent("""
+            [pipeline:duplicates]
+            dynamic = 1
+            pipeline = filtera filterb filtera filterb proxy-server
+
+            [filter:filtera]
+            pipeline = duplicates
+
+            [filter:filterb]
+            pipeline = duplicates
+            """)
+
+        with temp_config(config_text) as config:
+            pipeline = config.get('pipeline:duplicates', 'pipeline')
+            expected = 'filtera filterb filtera filterb proxy-server'
+            self.assertEquals(expected, pipeline)
+
 if __name__ == '__main__':
     unittest.main()
