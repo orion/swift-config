@@ -53,10 +53,6 @@ class NamedConfigLoader(loadwsgi.ConfigLoader):
     Patch paste.deploy's ConfigLoader so each context object will know what
     config section it came from.
     """
-    def __init__(self, filename):
-        super(loadwsgi.ConfigLoader, self).__init__(filename)
-        PipelineBuilder.assemble_all_dynamic_pipelines(self.parser)
-
     def get_context(self, object_type, name=None, global_conf=None):
         context = super(NamedConfigLoader, self).get_context(
             object_type, name=name, global_conf=global_conf)
@@ -82,6 +78,7 @@ class ConfigDirLoader(NamedConfigLoader):
         self.parser = loadwsgi.NicerConfigParser(conf_dir, defaults=defaults)
         self.parser.optionxform = str  # Don't lower-case keys
         utils.read_conf_dir(self.parser, conf_dir)
+        PipelineBuilder.assemble_all_dynamic_pipelines(self.parser)
 
 
 def _loadconfigdir(object_type, uri, path, name, relative_to, global_conf):
@@ -213,8 +210,6 @@ class PipelineBuilder(object):
                 deps[section].append('#end')
             if section not in chain(deps, inverted_deps): 
                 deps[section].append(self.app)
-
-        pprint(deps)
 
         if deps[self.app]:
             raise ValueError("ERROR: Filters placed after app! %r" % 

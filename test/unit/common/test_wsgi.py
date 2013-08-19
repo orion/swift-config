@@ -625,15 +625,14 @@ class TestWSGIContext(unittest.TestCase):
 def temp_config(contents):
     fd, fn = mkstemp()
     with temptree(['proxy-server.conf']) as t:
-        conf_file = os.path.join(t, 'proxy-server.conf')
+        conf_dir = os.path.join(t, 'proxy-server.conf.d')
+        os.mkdir(conf_dir)
+        conf_file = os.path.join(conf_dir, 'default.conf')
         with open(conf_file, 'w') as f:
-            f.write(contents.replace('TEMPDIR', t))
+            f.write(contents.replace('TEMPDIR', conf_file))
             f.close()
-            try:
-                loader = wsgi.NamedConfigLoader(conf_file)
-                yield loader.parser
-            except Exception as e:
-                yield e
+            loader = wsgi.ConfigDirLoader(conf_dir)
+            yield loader.parser
 
 from pprint import pprint
 class TestConfigParsing(unittest.TestCase):
@@ -815,8 +814,11 @@ class TestConfigParsing(unittest.TestCase):
             after = proxy-server
             """)
 
-        with temp_config(config_text) as exception:
-            self.assertEquals(ValueError, exception.__class__)
+        try:
+            with temp_config(config_text) as config:
+                pass
+        except Exception as e:
+            self.assertEquals(ValueError, e.__class__)
 
 if __name__ == '__main__':
     unittest.main()
