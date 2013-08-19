@@ -72,6 +72,7 @@ class ConfigDirLoader(NamedConfigLoader):
         # parent class uses filename attribute when building error messages
         self.filename = conf_dir = conf_dir.strip()
         defaults = {
+            'dynamic_pipelines': 'False',
             'here': os.path.normpath(os.path.abspath(conf_dir)),
             '__file__': os.path.abspath(conf_dir)
         }
@@ -93,6 +94,11 @@ def _loadconfigdir(object_type, uri, path, name, relative_to, global_conf):
 # add config_dir parsing to paste.deploy
 loadwsgi._loaders['config_dir'] = _loadconfigdir
 
+#
+# Utility functions for paste & dynamic pipelines
+#      qualify:   tempauth => filter:tempauth 
+#    dequalify:   filter:tempauth => tempauth
+#
 def dequalify(name):
     parts = name.partition(':')
     return parts[-1] or parts[0]
@@ -110,16 +116,6 @@ def qualify(app, name):
 def qualify_names(app, names):
     return [qualify(app, name) for name in names]
 
-def disambiguate_pipeline(pipeline):
-    found = dict(zip(iter(pipeline), repeat(0))) 
-    for item in pipeline:
-        found[item] += 1
-        if found[item] > 1:
-            yield "%s#%d" % (item, found[item])
-        else:
-            yield item
-
-
 from pprint import pprint
 class PipelineBuilder(object):
     def __init__(self, config, pipeline_name):
@@ -127,32 +123,31 @@ class PipelineBuilder(object):
         self.config = config
         self.pipeline_name = pipeline_name
 
-        # TODO: reinforce that static pipeline must have at least one entry
-        # TODO: make #start provides:start; don't expose #start; same with #end
         static_pipeline = self.config_value_as_list(pipeline_name, 'pipeline')
+        if not static_pipeline:
+            msg = 'No static pipeline found for pipeline:%s' % pipeline_name 
+            raise ConfigFileError(msg)
 
         self.app_name = static_pipeline[-1] 
         self.app = 'app:' + self.app_name
-        self.static_pipeline = ['filter:' + s for s in static_pipeline] 
-        self.static_pipeline = list(disambiguate_pipeline(self.static_pipeline))
+        pipeline = ['filter:' + s for s in static_pipeline] 
+        self.static_pipeline = list(self.disambiguate_pipeline(pipeline))
         self.static_pipeline[-1] = self.app
-        self.pipeline_members = self._identify_pipeline_members()
+        self.pipeline_members = self._identify_sections_in_dynamic_pipeline()
 
         graph = self.create_dependency_graph()
         self.pipeline = self._render_pipeline(graph)
 
     @classmethod
     def assemble_all_dynamic_pipelines(klass, config):
-        pipelines = [s for s in config.sections() if s.startswith('pipeline:')
-                        and config.has_option(s, 'dynamic')
-                        and utils.config_true_value(config.get(s, 'dynamic'))]
+        if config_true_value(config.get('DEFAULT', 'dynamic_pipelines')):
+            pipelines = [s for s in config.sections() if s.startswith('pipeline:')]
+            for pipeline_section in pipelines:
+                builder = klass(config, pipeline_section)
+                pipeline_str = ' '.join(builder.pipeline)
+                config.set(pipeline_section, 'pipeline', pipeline_str)
 
-        for pipeline_section in pipelines:
-            builder = klass(config, pipeline_section)
-            pipeline_str = ' '.join(builder.pipeline)
-            config.set(pipeline_section, 'pipeline', pipeline_str)
-
-    def _identify_pipeline_members(self):
+    def _identify_sections_in_dynamic_pipeline(self):
         '''
         A section is a member of the current pipeline if it is in the static 
         pipeline string or if it specifically targets this pipeline in its 
@@ -166,6 +161,15 @@ class PipelineBuilder(object):
         members.update(self.static_pipeline)
         members.update(s for s in self.config.sections() if is_member(s))
         return members
+
+    def disambiguate_pipeline(self, pipeline):
+        found = dict(zip(iter(pipeline), repeat(0))) 
+        for item in pipeline:
+            found[item] += 1
+            if found[item] > 1:
+                yield '%s#%d' % (item, found[item])
+            else:
+                yield item
 
     def create_dependency_graph(self):
         deps = defaultdict(list)
@@ -208,13 +212,13 @@ class PipelineBuilder(object):
                 deps[section].append(self.app)
 
         if deps[self.app]:
-            raise ValueError("ERROR: Filters placed after app! %r" % 
+            raise ConfigFileError('ERROR: Filters placed after app! %r' % 
                                             str(deps[self.app]))
 
         return deps
 
-    def get_constraints(self, section, position):
-        raw_constraints = self.config_value_as_list(section, position)
+    def get_constraints(self, section, before_or_after):
+        raw_constraints = self.config_value_as_list(section, before_or_after)
         service_dependence = lambda c: c.startswith('provides:')
         services, constraints = bifurcate(service_dependence, raw_constraints)
         constraints = [c for c in qualify_names(self.app_name, constraints) if c
@@ -251,7 +255,7 @@ class PipelineBuilder(object):
                     roots.add(child)
 
         if any(graph.values()):
-            raise ValueError("Cycle found for pipeline:%s!" %
+            raise ConfigFileError('Cycle found for pipeline:%s!' %
                              self.pipeline_name)
 
         return result

@@ -192,6 +192,7 @@ class TestWSGI(unittest.TestCase):
             '__file__': conf_dir,
             'here': conf_dir,
             'conn_timeout': '0.2',
+            'dynamic_pipelines': 'False',
             'swift_dir': conf_root,
         }
         self.assertEquals(expected, conf)
@@ -202,6 +203,9 @@ class TestWSGI(unittest.TestCase):
     def test_init_request_processor_with_dynamic_pipeline(self):
         config_dir = {
             'proxy-server.conf.d/pipeline.conf': """
+            [DEFAULT]
+            dynamic_pipelines: True
+
             [pipeline:main]
             pipeline = tempauth proxy-server
             """,
@@ -212,23 +216,22 @@ class TestWSGI(unittest.TestCase):
             'proxy-server.conf.d/catch-errors.conf': """
             [filter:catch_errors]
             use = egg:swift#catch_errors
-            before = #all, healthcheck 
+            pipeline = main
+            before = #start healthcheck 
             """,
             'proxy-server.conf.d/others.conf': """
             [filter:tempauth]
             use = egg:swift#tempauth
 
             [filter:keystone]
-            paste.filter_factory = keystone.middleware.swift_auth:filter_factory
-            before = tempauth, proxy-server
-
-            [filter:authtoken]
-            paste.filter_factory = keystone.middleware.auth_token:filter_factory
-            before = keystone, tempauth, proxy-server 
+            use = egg:swift#keystoneauth
+            before = tempauth proxy-server
+            pipeline = main
 
             [filter:healthcheck]
             use = egg:swift#healthcheck
-            before = #all, catch_errors 
+            before = #start
+            pipeline = main
             """,
         }
 
@@ -254,10 +257,9 @@ class TestWSGI(unittest.TestCase):
                 yield ware.__class__.__name__
 
         expected_classnames = [
-            'CatchErrorsMiddleware', 
+            'CatchErrorMiddleware', 
             'HealthCheckMiddleware',
-            'AuthTokenMiddleware',
-            'KeystoneMiddleware',
+            'KeystoneAuth',
             'TempAuth',
             'Application']
 
@@ -482,6 +484,7 @@ class TestWSGI(unittest.TestCase):
         expected = {
             '__file__': os.path.join(path, 'server.conf.d'),
             'here': os.path.join(path, 'server.conf.d'),
+            'dynamic_pipelines': 'False',
             'port': '8080',
         }
         self.assertEquals(conf, expected)
@@ -638,9 +641,11 @@ from pprint import pprint
 class TestConfigParsing(unittest.TestCase):
     def setUp(self):
         self.basic_config = dedent("""
+            [DEFAULT]
+            dynamic_pipelines: True
+
             [pipeline:main]
             pipeline = catch_errors proxy-server
-            dynamic = True
 
             [app:proxy-server]
             use = egg:swift#proxy
@@ -723,7 +728,6 @@ class TestConfigParsing(unittest.TestCase):
             use = egg:swift#superproxy
 
             [pipeline:secondary]
-            dynamic = 1
             pipeline = process_successes superproxy 
 
             [pipeline:shouldbeignored]
@@ -789,7 +793,6 @@ class TestConfigParsing(unittest.TestCase):
     def test_duplicate_items(self):
         config_text = dedent(self.basic_config) + dedent("""
             [pipeline:duplicates]
-            dynamic = 1
             pipeline = filtera filterb filtera filterb proxy-server
 
             [filter:filtera]
@@ -815,7 +818,25 @@ class TestConfigParsing(unittest.TestCase):
             with temp_config(config_text) as config:
                 pass
         except Exception as e:
-            self.assertEquals(ValueError, e.__class__)
+            self.assertEquals(wsgi.ConfigFileError, e.__class__)
+
+    def test_must_have_static_pipeline(self):
+        config_text = dedent(self.basic_config) + dedent("""
+            [pipeline:empty]
+
+            [app:proxy-server]
+            pipeline = empty
+
+            [filter:filtera]
+            pipeline = empty
+            after = proxy-server
+            """)
+
+        try:
+            with temp_config(config_text) as config:
+                pass
+        except Exception as e:
+            self.assertEquals(wsgi.ConfigFileError, e.__class__)
 
     def test_circular_dependencies(self):
         config_text = dedent(self.basic_config) + dedent("""
@@ -833,7 +854,7 @@ class TestConfigParsing(unittest.TestCase):
             with temp_config(config_text) as config:
                 pass
         except Exception as e:
-            self.assertEquals(ValueError, e.__class__)
+            self.assertEquals(wsgi.ConfigFileError, e.__class__)
 
 if __name__ == '__main__':
     unittest.main()
