@@ -624,16 +624,16 @@ class TestWSGIContext(unittest.TestCase):
 @contextmanager
 def temp_config(contents):
     fd, fn = mkstemp()
-    try:
-        fh = os.fdopen(fd, "w")
-        fh.write(contents)
-        fh.close()
-        loader = wsgi.NamedConfigLoader(fn)
-        yield loader.parser
-    except Exception as e:
-        yield e
-    finally:
-        os.unlink(fn)
+    with temptree(['proxy-server.conf']) as t:
+        conf_file = os.path.join(t, 'proxy-server.conf')
+        with open(conf_file, 'w') as f:
+            f.write(contents.replace('TEMPDIR', t))
+            f.close()
+            try:
+                loader = wsgi.NamedConfigLoader(conf_file)
+                yield loader.parser
+            except Exception as e:
+                yield e
 
 from pprint import pprint
 class TestConfigParsing(unittest.TestCase):
