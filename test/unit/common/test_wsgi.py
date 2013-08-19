@@ -630,9 +630,10 @@ def temp_config(contents):
         fh.close()
         loader = wsgi.NamedConfigLoader(fn)
         yield loader.parser
+    except Exception as e:
+        yield e
     finally:
         os.unlink(fn)
-
 
 from pprint import pprint
 class TestConfigParsing(unittest.TestCase):
@@ -780,13 +781,13 @@ class TestConfigParsing(unittest.TestCase):
 
             [filter:yet-later]
             pipeline = main
-            provides = authorization
             after = #end 
             """)
 
         with temp_config(config_text) as config:
             pipeline = config.get('pipeline:main', 'pipeline')
-            expected = 'yet-earlier early catch_errors late proxy-server'
+            expected = 'yet-earlier early catch_errors ' + \
+                       'late yet-later proxy-server'
             self.assertEquals(expected, pipeline)
 
     def test_duplicate_items(self):
@@ -806,6 +807,16 @@ class TestConfigParsing(unittest.TestCase):
             pipeline = config.get('pipeline:duplicates', 'pipeline')
             expected = 'filtera filterb filtera filterb proxy-server'
             self.assertEquals(expected, pipeline)
+
+    def test_nothing_goes_after_app(self):
+        config_text = dedent(self.basic_config) + dedent("""
+            [filter:after_app]
+            pipeline = main
+            after = proxy-server
+            """)
+
+        with temp_config(config_text) as exception:
+            self.assertEquals(ValueError, exception.__class__)
 
 if __name__ == '__main__':
     unittest.main()

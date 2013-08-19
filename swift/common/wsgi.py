@@ -184,6 +184,8 @@ class PipelineBuilder(object):
         for section in sorted(self.pipeline_members):
             if section == self.app:
                 continue
+            else:
+                deps[section].append(self.app)
 
             services, constraints = self.get_constraints(section, 'before') 
             for constraint in constraints:
@@ -211,6 +213,8 @@ class PipelineBuilder(object):
                 deps[section].append('#end')
             if section not in chain(deps, inverted_deps): 
                 deps[section].append(self.app)
+
+        pprint(deps)
 
         if deps[self.app]:
             raise ValueError("ERROR: Filters placed after app! %r" % 
