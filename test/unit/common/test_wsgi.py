@@ -650,27 +650,21 @@ class TestConfigParsing(unittest.TestCase):
             use = egg:swift#catch_errors
             """)
 
-    def to_config(self, config_data, pipeline='main'):
-        config = '' 
-        for entry in config_data:
-            config += '[filter:%s]\n' % entry[0]
-            config += 'pipeline = %s\n' % pipeline
-            for attrs in entry[1]:
-                config += '%s = %s\n' % tuple(attrs)
-        config += '\n'
-        return config
-
-    def append_config(self, config_lines):
-        return "%s\n%s" % (self.basic_config, config_lines)
-
-    # TODO: revert this to the text-based system
     def test_basic_interpolation(self):
-        added_config = [
-            ('attheend', (('after', 'between'),)),
-            ('between', (('before', 'proxy-server'), 
-                         ('after', 'catch_errors'))),
-            ('atthestart', (('before', 'catch_errors'),))]
-        config_text = self.append_config(self.to_config(added_config))
+        config_text = dedent(self.basic_config) + dedent("""
+            [filter:attheend]
+            pipeline = main
+            after = between
+            
+            [filter:between]
+            pipeline = main
+            before = proxy-server
+            after = catch_errors 
+
+            [filter:atthestart]
+            pipeline = main
+            before = catch_errors 
+            """)
 
         with temp_config(config_text) as config:
             pipeline = config.get('pipeline:main', 'pipeline')
@@ -725,9 +719,12 @@ class TestConfigParsing(unittest.TestCase):
 
     def test_multiple_pipelines(self):
         config_text = dedent(self.basic_config) + dedent("""
+            [composite:superproxy]
+            use = egg:swift#superproxy
+
             [pipeline:secondary]
             dynamic = 1
-            pipeline = process_successes proxy-server
+            pipeline = process_successes superproxy 
 
             [pipeline:shouldbeignored]
             pipeline = proxy-server 
@@ -735,7 +732,7 @@ class TestConfigParsing(unittest.TestCase):
             [filter:shortbus]
             pipeline = main 
             after = catch_errors process_successes 
-            before = proxy-server
+            before = proxy-server superproxy
             
             [filter:amalgamut]
             pipeline = main secondary
@@ -755,7 +752,7 @@ class TestConfigParsing(unittest.TestCase):
             self.assertEquals(expected, pipeline)
 
             pipeline = config.get('pipeline:secondary', 'pipeline')
-            expected = 'amalgamut process_successes proxy-server'
+            expected = 'amalgamut process_successes superproxy'
             self.assertEquals(expected, pipeline)
 
             pipeline = config.get('pipeline:shouldbeignored', 'pipeline')
