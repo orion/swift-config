@@ -629,7 +629,7 @@ def temp_config(contents):
         os.mkdir(conf_dir)
         conf_file = os.path.join(conf_dir, 'default.conf')
         with open(conf_file, 'w') as f:
-            f.write(contents.replace('TEMPDIR', conf_file))
+            f.write(contents)
             f.close()
             loader = wsgi.ConfigDirLoader(conf_dir)
             yield loader.parser
@@ -809,6 +809,24 @@ class TestConfigParsing(unittest.TestCase):
             [filter:after_app]
             pipeline = main
             after = proxy-server
+            """)
+
+        try:
+            with temp_config(config_text) as config:
+                pass
+        except Exception as e:
+            self.assertEquals(ValueError, e.__class__)
+
+    def test_circular_dependencies(self):
+        config_text = dedent(self.basic_config) + dedent("""
+            [filter:filter1]
+            pipeline = main
+            after = catch_errors 
+
+            [filter:filter2]
+            pipeline = main
+            before = catch_errors
+            after = filter1 
             """)
 
         try:

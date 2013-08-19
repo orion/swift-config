@@ -132,7 +132,6 @@ class PipelineBuilder(object):
         static_pipeline = self.config_value_as_list(pipeline_name, 'pipeline')
 
         self.app_name = static_pipeline[-1] 
-        # TODO: Confirm that this approach works with composites, etc.
         self.app = 'app:' + self.app_name
         self.static_pipeline = ['filter:' + s for s in static_pipeline] 
         self.static_pipeline = list(disambiguate_pipeline(self.static_pipeline))
@@ -171,9 +170,6 @@ class PipelineBuilder(object):
     def create_dependency_graph(self):
         deps = defaultdict(list)
         providers = self._group_providers_by_service(self.pipeline_members)
-
-        # TODO: This will be unnecessary when app goes after everything.
-        deps['#end'].append(self.app)
 
         for current, following in pairwise(self.static_pipeline):
             deps[current].append(following)
@@ -255,7 +251,7 @@ class PipelineBuilder(object):
                     roots.add(child)
 
         if any(graph.values()):
-            raise ValueError("Cycle found for pipeline %s!" %
+            raise ValueError("Cycle found for pipeline:%s!" %
                              self.pipeline_name)
 
         return result
