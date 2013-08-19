@@ -777,6 +777,11 @@ class TestConfigParsing(unittest.TestCase):
             pipeline = main
             provides = authorization
             after = #end 
+
+            [filter:yet-later]
+            pipeline = main
+            provides = authorization
+            after = #end 
             """)
 
         with temp_config(config_text) as config:
