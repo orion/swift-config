@@ -116,7 +116,7 @@ def qualify(app, name):
 def qualify_names(app, names):
     return [qualify(app, name) for name in names]
 
-from pprint import pprint
+
 class PipelineBuilder(object):
     def __init__(self, config, pipeline_name):
         self.pipeline = []
@@ -131,11 +131,11 @@ class PipelineBuilder(object):
         self.app_name = static_pipeline[-1] 
         self.app = 'app:' + self.app_name
         pipeline = ['filter:' + s for s in static_pipeline] 
-        self.static_pipeline = list(self.disambiguate_pipeline(pipeline))
+        self.static_pipeline = list(self._disambiguate(pipeline))
         self.static_pipeline[-1] = self.app
         self.pipeline_members = self._identify_sections_in_dynamic_pipeline()
 
-        graph = self.create_dependency_graph()
+        graph = self._create_dependency_graph()
         self.pipeline = self._render_pipeline(graph)
 
     @classmethod
@@ -162,7 +162,13 @@ class PipelineBuilder(object):
         members.update(s for s in self.config.sections() if is_member(s))
         return members
 
-    def disambiguate_pipeline(self, pipeline):
+    def _disambiguate(self, pipeline):
+        '''
+        If a filter is put into the pipeline multiple times, disambiguate
+        subsequent ones as "filter#2", "filter#3", etc., so that we can
+        refer to them uniquely.  This disambiguation is stripped out
+        before the pipeline is rendered
+        '''
         found = dict(zip(iter(pipeline), repeat(0))) 
         for item in pipeline:
             found[item] += 1
@@ -171,7 +177,7 @@ class PipelineBuilder(object):
             else:
                 yield item
 
-    def create_dependency_graph(self):
+    def _create_dependency_graph(self):
         deps = defaultdict(list)
         providers = self._group_providers_by_service(self.pipeline_members)
 
@@ -179,6 +185,7 @@ class PipelineBuilder(object):
             deps[current].append(following)
 
         for section in sorted(self.pipeline_members):
+            # Every section must depend on the app
             if section == self.app:
                 continue
             else:
@@ -200,6 +207,8 @@ class PipelineBuilder(object):
                 for provider in providers[service]:
                     deps[provider].append(section)
 
+        # If a section hasn't declared a specific dependency on #start or #end,
+        # then it depends on #start and has #end as a dependency.
         inverted_deps = self._invert_graph(deps)
         for section in self.pipeline_members:
             if section.startswith('#'):
@@ -208,8 +217,6 @@ class PipelineBuilder(object):
                 deps['#start'].append(section)
             if '#end' not in chain(deps[section], inverted_deps[section]):
                 deps[section].append('#end')
-            if section not in chain(deps, inverted_deps): 
-                deps[section].append(self.app)
 
         if deps[self.app]:
             raise ConfigFileError('ERROR: Filters placed after app! %r' % 

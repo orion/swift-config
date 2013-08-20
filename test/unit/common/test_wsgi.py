@@ -637,7 +637,6 @@ def temp_config(contents):
             loader = wsgi.ConfigDirLoader(conf_dir)
             yield loader.parser
 
-from pprint import pprint
 class TestConfigParsing(unittest.TestCase):
     def setUp(self):
         self.basic_config = dedent("""
