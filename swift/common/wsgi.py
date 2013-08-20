@@ -94,17 +94,20 @@ def _loadconfigdir(object_type, uri, path, name, relative_to, global_conf):
 # add config_dir parsing to paste.deploy
 loadwsgi._loaders['config_dir'] = _loadconfigdir
 
+
 #
 # Utility functions for paste & dynamic pipelines
-#      qualify:   tempauth => filter:tempauth 
+#      qualify:   tempauth => filter:tempauth
 #    dequalify:   filter:tempauth => tempauth
 #
 def dequalify(name):
     parts = name.partition(':')
     return parts[-1] or parts[0]
 
+
 def dequalify_names(names):
     return [dequalify(name) for name in names]
+
 
 def qualify(app, name):
     if name.startswith('#'):
@@ -113,19 +116,20 @@ def qualify(app, name):
         return 'app:%s' % name
     return 'filter:%s' % name
 
+
 def qualify_names(app, names):
     return [qualify(app, name) for name in names]
 
 
 class PipelineBuilder(object):
     """
-    Dynamically build a pastedeploy pipeline based on dependencies specified 
-    in the filter configuration sections.  
-    
-    Start with a normally declared pipeline that has at least an app: 
-    (or composite: or what have you), examine all of the filters to see 
-    if they declare dependencies on other members of the pipeline.  Build 
-    a dependency graph, then topologically sort it to find an appropriate 
+    Dynamically build a pastedeploy pipeline based on dependencies specified
+    in the filter configuration sections.
+
+    Start with a normally declared pipeline that has at least an app:
+    (or composite: or what have you), examine all of the filters to see
+    if they declare dependencies on other members of the pipeline.  Build
+    a dependency graph, then topologically sort it to find an appropriate
     ordering.
     """
     def __init__(self, config, pipeline_name):
@@ -135,12 +139,12 @@ class PipelineBuilder(object):
 
         static_pipeline = self.config_value_as_list(pipeline_name, 'pipeline')
         if not static_pipeline:
-            msg = 'No static pipeline found for pipeline:%s' % pipeline_name 
+            msg = 'No static pipeline found for pipeline:%s' % pipeline_name
             raise ConfigFileError(msg)
 
-        self.app_name = static_pipeline[-1] 
+        self.app_name = static_pipeline[-1]
         self.app = 'app:' + self.app_name
-        static_pipeline = qualify_names(self.app_name, static_pipeline) 
+        static_pipeline = qualify_names(self.app_name, static_pipeline)
         self.static_pipeline = list(self._disambiguate(static_pipeline))
         self.pipeline_members = self._identify_sections_in_dynamic_pipeline()
 
@@ -150,7 +154,8 @@ class PipelineBuilder(object):
     @classmethod
     def assemble_all_dynamic_pipelines(klass, config):
         if config_true_value(config.get('DEFAULT', 'dynamic_pipelines')):
-            pipelines = [s for s in config.sections() if s.startswith('pipeline:')]
+            sections = config.sections()
+            pipelines = [s for s in sections if s.startswith('pipeline:')]
             for pipeline_section in pipelines:
                 builder = klass(config, pipeline_section)
                 pipeline_str = ' '.join(builder.pipeline)
@@ -158,8 +163,8 @@ class PipelineBuilder(object):
 
     def _identify_sections_in_dynamic_pipeline(self):
         """
-        A section is a member of the current pipeline if it is in the static 
-        pipeline string or if it specifically targets this pipeline in its 
+        A section is a member of the current pipeline if it is in the static
+        pipeline string or if it specifically targets this pipeline in its
         filter definition.
         """
         def is_member(section):
@@ -178,7 +183,7 @@ class PipelineBuilder(object):
         refer to them uniquely.  This disambiguation is stripped out
         before the pipeline is rendered.
         """
-        found = dict(zip(iter(pipeline), repeat(0))) 
+        found = dict(zip(iter(pipeline), repeat(0)))
         for item in pipeline:
             found[item] += 1
             if found[item] > 1:
@@ -200,7 +205,7 @@ class PipelineBuilder(object):
             else:
                 deps[section].append(self.app)
 
-            services, constraints = self.get_constraints(section, 'before') 
+            services, constraints = self.get_constraints(section, 'before')
             for constraint in constraints:
                 deps[section].append(constraint)
 
@@ -208,7 +213,7 @@ class PipelineBuilder(object):
                 for provider in providers[service]:
                     deps[section].append(provider)
 
-            services, constraints = self.get_constraints(section, 'after') 
+            services, constraints = self.get_constraints(section, 'after')
             for constraint in constraints:
                 deps[constraint].append(section)
 
@@ -228,8 +233,8 @@ class PipelineBuilder(object):
                 deps[section].append('#end')
 
         if deps[self.app]:
-            raise ConfigFileError('ERROR: Filters placed after app! %r' % 
-                                            str(deps[self.app]))
+            msg = 'ERROR: Filters placed after app! %r' % str(deps[self.app])
+            raise ConfigFileError(msg)
 
         return deps
 
@@ -237,8 +242,9 @@ class PipelineBuilder(object):
         raw_constraints = self.config_value_as_list(section, before_or_after)
         service_dependence = lambda c: c.startswith('provides:')
         services, constraints = bifurcate(service_dependence, raw_constraints)
-        constraints = [c for c in qualify_names(self.app_name, constraints) if c
-                        in self.pipeline_members]
+        qualified_constraints = qualify_names(self.app_name, constraints)
+        constraints = [c for c in qualified_constraints if
+                       c in self.pipeline_members]
         return dequalify_names(services), constraints
 
     def _group_providers_by_service(self, sections):
@@ -272,7 +278,7 @@ class PipelineBuilder(object):
 
         if any(graph.values()):
             raise ConfigFileError('Cycle found for pipeline:%s!' %
-                             self.pipeline_name)
+                                  self.pipeline_name)
 
         return result
 
@@ -287,7 +293,7 @@ class PipelineBuilder(object):
 
     def config_value_as_list(self, section, setting):
         """
-        Take a config property whose value is a string with a space-separated 
+        Take a config property whose value is a string with a space-separated
         list of words and return a list of words.
         """
         values = []

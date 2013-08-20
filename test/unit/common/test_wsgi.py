@@ -217,7 +217,7 @@ class TestWSGI(unittest.TestCase):
             [filter:catch_errors]
             use = egg:swift#catch_errors
             pipeline = main
-            before = #start healthcheck 
+            before = #start healthcheck
             """,
             'proxy-server.conf.d/others.conf': """
             [filter:tempauth]
@@ -245,7 +245,7 @@ class TestWSGI(unittest.TestCase):
             app, conf, logger, log_name = wsgi.init_request_processor(
                 conf_dir, 'proxy-server')
 
-        # verify pipeline 
+        # verify pipeline
         def get_pipeline(app):
             yield app
             while hasattr(app, 'app'):
@@ -257,7 +257,7 @@ class TestWSGI(unittest.TestCase):
                 yield ware.__class__.__name__
 
         expected_classnames = [
-            'CatchErrorMiddleware', 
+            'CatchErrorMiddleware',
             'HealthCheckMiddleware',
             'KeystoneAuth',
             'TempAuth',
@@ -605,6 +605,7 @@ class TestWSGI(unittest.TestCase):
         self.assertEquals(r.environ['SCRIPT_NAME'], '')
         self.assertEquals(r.environ['PATH_INFO'], '/override')
 
+
 class TestWSGIContext(unittest.TestCase):
 
     def test_app_call(self):
@@ -624,6 +625,7 @@ class TestWSGIContext(unittest.TestCase):
         self.assertEquals(wc._response_status, '404 Not Found')
         self.assertEquals(''.join(it), 'Ok\n')
 
+
 @contextmanager
 def temp_config(contents):
     fd, fn = mkstemp()
@@ -636,6 +638,7 @@ def temp_config(contents):
             f.close()
             loader = wsgi.ConfigDirLoader(conf_dir)
             yield loader.parser
+
 
 class TestConfigParsing(unittest.TestCase):
     def setUp(self):
@@ -659,15 +662,15 @@ class TestConfigParsing(unittest.TestCase):
             [filter:attheend]
             pipeline = main
             after = between
-            
+
             [filter:between]
             pipeline = main
             before = proxy-server
-            after = catch_errors 
+            after = catch_errors
 
             [filter:atthestart]
             pipeline = main
-            before = catch_errors 
+            before = catch_errors
             """)
 
         with temp_config(config_text) as config:
@@ -682,7 +685,7 @@ class TestConfigParsing(unittest.TestCase):
             provides = authentication
             before = proxy-server provides:authorization
             after = catch_errors
-            
+
             [filter:ldap]
             pipeline = main
             provides = authorization
@@ -695,7 +698,7 @@ class TestConfigParsing(unittest.TestCase):
             before = provides:authentication provides:authorization 
             after = catch_errors
             """)
-        
+
         with temp_config(config_text) as config:
             pipeline = config.get('pipeline:main', 'pipeline')
             expected = 'catch_errors coffee kerberos ldap proxy-server'
@@ -706,15 +709,15 @@ class TestConfigParsing(unittest.TestCase):
             [filter:deluded]
             pipeline = main
             before = doesnotexist
-            after = provides:nonexistent 
-            
+            after = provides:nonexistent
+
             [filter:fool]
             pipeline = main
             provides = authorization
             before = imaginary, figmental
-            after = illusive; fictional; hallucinatory 
+            after = illusive; fictional; hallucinatory
             """)
-        
+
         with temp_config(config_text) as config:
             pipeline = config.get('pipeline:main', 'pipeline')
             expected = set(['catch_errors', 'proxy-server', 'deluded', 'fool'])
@@ -727,14 +730,14 @@ class TestConfigParsing(unittest.TestCase):
             use = egg:swift#superproxy
 
             [pipeline:secondary]
-            pipeline = process_successes superproxy 
+            pipeline = process_successes superproxy
 
             [pipeline:shouldbeignored]
-            pipeline = proxy-server 
+            pipeline = proxy-server
 
             [filter:shortbus]
-            pipeline = main 
-            after = catch_errors process_successes 
+            pipeline = main
+            after = catch_errors process_successes
             before = proxy-server superproxy
             
             [filter:amalgamut]
@@ -748,7 +751,7 @@ class TestConfigParsing(unittest.TestCase):
             pipeline = doesnotexist
             before = catch_errors
             """)
-        
+
         with temp_config(config_text) as config:
             pipeline = config.get('pipeline:main', 'pipeline')
             expected = 'amalgamut catch_errors shortbus proxy-server'
@@ -766,21 +769,21 @@ class TestConfigParsing(unittest.TestCase):
             [filter:early]
             pipeline = main
             provides = authentication
-            before = #start 
+            before = #start
 
             [filter:yet-earlier]
             pipeline = main
             provides = authentication
-            before = #start early 
-            
+            before = #start early
+
             [filter:late]
             pipeline = main
             provides = authorization
-            after = #end 
+            after = #end
 
             [filter:yet-later]
             pipeline = main
-            after = #end 
+            after = #end
             """)
 
         with temp_config(config_text) as config:
@@ -841,12 +844,12 @@ class TestConfigParsing(unittest.TestCase):
         config_text = dedent(self.basic_config) + dedent("""
             [filter:filter1]
             pipeline = main
-            after = catch_errors 
+            after = catch_errors
 
             [filter:filter2]
             pipeline = main
             before = catch_errors
-            after = filter1 
+            after = filter1
             """)
 
         try:
