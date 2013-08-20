@@ -118,6 +118,16 @@ def qualify_names(app, names):
 
 
 class PipelineBuilder(object):
+    """
+    Dynamically build a pastedeploy pipeline based on dependencies specified 
+    in the filter configuration sections.  
+    
+    Start with a normally declared pipeline that has at least an app: 
+    (or composite: or what have you), examine all of the filters to see 
+    if they declare dependencies on other members of the pipeline.  Build 
+    a dependency graph, then topologically sort it to find an appropriate 
+    ordering.
+    """
     def __init__(self, config, pipeline_name):
         self.pipeline = []
         self.config = config
@@ -130,9 +140,8 @@ class PipelineBuilder(object):
 
         self.app_name = static_pipeline[-1] 
         self.app = 'app:' + self.app_name
-        pipeline = ['filter:' + s for s in static_pipeline] 
-        self.static_pipeline = list(self._disambiguate(pipeline))
-        self.static_pipeline[-1] = self.app
+        static_pipeline = qualify_names(self.app_name, static_pipeline) 
+        self.static_pipeline = list(self._disambiguate(static_pipeline))
         self.pipeline_members = self._identify_sections_in_dynamic_pipeline()
 
         graph = self._create_dependency_graph()
@@ -148,11 +157,11 @@ class PipelineBuilder(object):
                 config.set(pipeline_section, 'pipeline', pipeline_str)
 
     def _identify_sections_in_dynamic_pipeline(self):
-        '''
+        """
         A section is a member of the current pipeline if it is in the static 
         pipeline string or if it specifically targets this pipeline in its 
         filter definition.
-        '''
+        """
         def is_member(section):
             targets = self.config_value_as_list(section, 'pipeline')
             return dequalify(self.pipeline_name) in targets
@@ -163,12 +172,12 @@ class PipelineBuilder(object):
         return members
 
     def _disambiguate(self, pipeline):
-        '''
+        """
         If a filter is put into the pipeline multiple times, disambiguate
         subsequent ones as "filter#2", "filter#3", etc., so that we can
         refer to them uniquely.  This disambiguation is stripped out
-        before the pipeline is rendered
-        '''
+        before the pipeline is rendered.
+        """
         found = dict(zip(iter(pipeline), repeat(0))) 
         for item in pipeline:
             found[item] += 1
@@ -276,11 +285,11 @@ class PipelineBuilder(object):
 
         return pipeline
 
-    def config_sections_of_type(self, prefix):
-        sections = self.config.sections()
-        return [s for s in sections if s.startswith(prefix + ':')]
-
     def config_value_as_list(self, section, setting):
+        """
+        Take a config property whose value is a string with a space-separated 
+        list of words and return a list of words.
+        """
         values = []
         if self.config.has_option(section, setting):
             values = re.split('\s+', self.config.get(section, setting))
